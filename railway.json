@@ -1,5 +1,9 @@
+
 {
+  "build": {
+    "builder": "NIXPACKS"
+  },
   "deploy": {
-    "startCommand": "npx playwright install && node index.js"
+    "startCommand": "npx playwright install --with-deps && node index.js"
   }
 }
