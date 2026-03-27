@@ -3,51 +3,117 @@ const { chromium } = require('playwright');
 
 const app = express();
 
+app.get('/', (req, res) => {
+  res.send('Apex extractor running 😏🔥');
+});
+
 app.get('/extract', async (req, res) => {
   const url = req.query.url;
-  let m3u8 = [];
+
+  let foundUrls = new Set();
 
   try {
     const browser = await chromium.launch({
-      args: ['--no-sandbox']
+      headless: true,
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage'
+      ]
     });
 
-    const page = await browser.newPage();
-
-    await page.setUserAgent(
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36'
-    );
-
-    await page.setExtraHTTPHeaders({
-      referer: 'https://aniwatchtv.to'
-    });
-
-    page.on('response', r => {
-      const u = r.url();
-      if (u.includes('.m3u8')) {
-        console.log('FOUND:', u);
-        m3u8.push(u);
+    const context = await browser.newContext({
+      userAgent:
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120 Safari/537.36',
+      extraHTTPHeaders: {
+        referer: 'https://aniwatchtv.to',
+        origin: 'https://aniwatchtv.to'
       }
     });
 
-    await page.goto(url, { waitUntil: 'domcontentloaded' });
+    const page = await context.newPage();
 
-    // try play video
-    await page.waitForTimeout(4000);
-    await page.evaluate(() => {
-      document.querySelector('video')?.play();
+    // 🔥 CAPTURE ALL NETWORK REQUESTS
+    page.on('response', async (response) => {
+      const url = response.url();
+
+      if (
+        url.includes('.m3u8') ||
+        url.includes('.mpd') ||
+        url.includes('.mp4')
+      ) {
+        console.log('FOUND:', url);
+        foundUrls.add(url);
+      }
     });
 
-    // wait for streams
+    // 🚀 OPEN PAGE
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 0 });
+
+    // ⏳ WAIT INITIAL LOAD
+    await page.waitForTimeout(3000);
+
+    // 🔽 SCROLL (trigger lazy load)
+    await page.evaluate(() => {
+      window.scrollTo(0, document.body.scrollHeight);
+    });
+
+    // ▶️ TRY PLAY VIDEO (JW PLAYER / HTML5)
+    try {
+      await page.evaluate(() => {
+        const video = document.querySelector('video');
+        if (video) {
+          video.muted = true;
+          video.play().catch(() => {});
+        }
+
+        // JW Player fallback
+        if (window.jwplayer) {
+          try {
+            window.jwplayer().play();
+          } catch (e) {}
+        }
+      });
+    } catch (e) {}
+
+    // 🔥 HANDLE IFRAMES (VERY IMPORTANT)
+    const frames = page.frames();
+
+    for (const frame of frames) {
+      try {
+        await frame.evaluate(() => {
+          const video = document.querySelector('video');
+          if (video) {
+            video.muted = true;
+            video.play().catch(() => {});
+          }
+
+          if (window.jwplayer) {
+            try {
+              window.jwplayer().play();
+            } catch (e) {}
+          }
+        });
+      } catch (e) {}
+    }
+
+    // ⏳ WAIT FOR STREAM REQUESTS
     await page.waitForTimeout(8000);
 
     await browser.close();
 
-    res.json({ m3u8 });
+    const results = Array.from(foundUrls);
 
-  } catch (e) {
-    res.json({ error: e.message });
+    res.json({
+      count: results.length,
+      streams: results
+    });
+
+  } catch (error) {
+    console.log('ERROR:', error);
+    res.json({ error: error.message });
   }
 });
 
-app.listen(3000, () => console.log('Server running'));
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => console.log('Server running on', PORT));
