@@ -1,0 +1,5 @@
+{
+  "deploy": {
+    "startCommand": "npx playwright install && node index.js"
+  }
+}
